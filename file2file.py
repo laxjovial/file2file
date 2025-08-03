@@ -94,11 +94,18 @@ def convert_doc_file(uploaded_file, source, target):
         elif source == "docx":
             # Save the uploaded DOCX to a temporary file for pypandoc
             with open(temp_input_path, "wb") as f:
+                uploaded_file.seek(0) # Ensure pointer is at start for writing
                 f.write(uploaded_file.read())
 
             if target == "pdf":
-                # pypandoc requires input and output file paths
-                pypandoc.convert_file(temp_input_path, "pdf", outputfile=temp_output_path)
+                # Use pypandoc to convert the temporary file
+                # IMPORTANT: Specify wkhtmltopdf as the PDF engine as pdflatex is not installed
+                pypandoc.convert_file(
+                    temp_input_path, 
+                    "pdf", 
+                    outputfile=temp_output_path, 
+                    extra_args=['--pdf-engine=wkhtmltopdf'] # <--- KEY CHANGE HERE
+                )
                 with open(temp_output_path, "rb") as f:
                     result.write(f.read())
             elif target == "txt":
@@ -153,8 +160,7 @@ def convert_sheet_file(uploaded_file, source, target):
     if target == "csv":
         df.to_csv(result, index=False)
     else: # target is xls or xlsx
-        # For Excel, use 'openpyxl' engine for xlsx, 'xlrd' for xls (though xlrd is deprecated for xls)
-        # It's generally safer to just use openpyxl for both if possible, or handle xls specifically
+        # For Excel, use 'openpyxl' engine for both xls and xlsx
         df.to_excel(result, index=False, engine="openpyxl") 
 
     # Reset the BytesIO object's pointer before returning it for download
