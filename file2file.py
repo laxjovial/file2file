@@ -9,12 +9,6 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 import pypandoc
 
-# Ensure pandoc is installed
-try:
-    pypandoc.get_pandoc_path()
-except OSError:
-    pypandoc.download_pandoc()
-
 st.set_page_config(page_title="File2File Converter", layout="centered")
 st.title("📁 File2File Converter")
 st.markdown("Convert between PDF, DOCX, TXT, CSV, XLS, XLSX. Batch uploads supported. Real PDF export.")
