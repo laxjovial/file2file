@@ -1,6 +1,9 @@
-streamlit 
-python-docx 
-pandas 
-openpyxl 
-xlrd 
-pypdf
+streamlit
+pandas
+openpyxl
+xlrd
+python-docx
+pdf2docx
+pdfplumber
+reportlab
+pypandoc
