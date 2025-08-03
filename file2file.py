@@ -1,106 +1,133 @@
 import streamlit as st
 import pandas as pd
-from io import BytesIO
 import os
-
+from io import BytesIO
 from docx import Document
-from PyPDF2 import PdfReader
-from fpdf import FPDF
+from pdf2docx import Converter
+import pdfplumber
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+import pypandoc
 
-# Set title
+# Ensure pandoc is installed
+try:
+    pypandoc.get_pandoc_path()
+except OSError:
+    pypandoc.download_pandoc()
+
 st.title("📁 File2File Converter")
-st.write("Upload a file and convert it to another format.")
+st.markdown("Convert between PDF, DOCX, TXT, CSV, XLS, XLSX. All conversions are real and bidirectional.")
 
-# Define supported formats
 doc_types = ["pdf", "docx", "txt"]
 sheet_types = ["csv", "xls", "xlsx"]
-
 all_types = doc_types + sheet_types
 
-# Select source and target formats
-source_format = st.selectbox("Select the source format", all_types)
-target_format = st.selectbox("Select the target format", [f for f in all_types if f != source_format])
+source_format = st.selectbox("From format", all_types)
+target_format = st.selectbox("To format", [f for f in all_types if f != source_format])
 
-# File uploader
-uploaded_file = st.file_uploader(f"Upload a {source_format.upper()} file", type=[source_format])
+uploaded_file = st.file_uploader("Upload your file", type=[source_format])
 
-# Convert to bytes for download
-def download_button(data, filename, label):
-    st.download_button(label, data=data, file_name=filename)
-
-# Helper: Convert PDF to text
-def pdf_to_text(file):
-    reader = PdfReader(file)
-    text = "\n".join([page.extract_text() or '' for page in reader.pages])
-    return text
-
-# Helper: Text to PDF using FPDF
-def text_to_pdf(text):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_font("Arial", size=12)
-    for line in text.splitlines():
-        pdf.cell(0, 10, txt=line, ln=True)
-    output = BytesIO()
-    pdf.output(output)
-    return output.getvalue()
-
-# Handle conversion logic
-def convert_file(uploaded_file, source_format, target_format):
+def convert_doc_file(uploaded_file, source, target):
     result = BytesIO()
 
-    # Text-based conversions
-    if source_format in doc_types and target_format in doc_types:
-        text = ""
+    # Read input content
+    if source == "pdf":
+        if target == "docx":
+            with open("temp_input.pdf", "wb") as f:
+                f.write(uploaded_file.read())
+            cv = Converter("temp_input.pdf")
+            cv.convert("temp_output.docx", start=0, end=None)
+            cv.close()
+            with open("temp_output.docx", "rb") as f:
+                result.write(f.read())
+            os.remove("temp_input.pdf")
+            os.remove("temp_output.docx")
 
-        # Read original
-        if source_format == "pdf":
-            text = pdf_to_text(uploaded_file)
-        elif source_format == "docx":
+        elif target == "txt":
+            with pdfplumber.open(uploaded_file) as pdf:
+                text = "\n".join([page.extract_text() or "" for page in pdf.pages])
+                result.write(text.encode("utf-8"))
+
+    elif source == "docx":
+        if target == "pdf":
+            with open("temp.docx", "wb") as f:
+                f.write(uploaded_file.read())
+            output = pypandoc.convert_file("temp.docx", "pdf", outputfile="temp.pdf")
+            with open("temp.pdf", "rb") as f:
+                result.write(f.read())
+            os.remove("temp.docx")
+            os.remove("temp.pdf")
+
+        elif target == "txt":
             doc = Document(uploaded_file)
             text = "\n".join([para.text for para in doc.paragraphs])
-        elif source_format == "txt":
-            text = uploaded_file.read().decode("utf-8")
-
-        # Write to target
-        if target_format == "txt":
             result.write(text.encode("utf-8"))
-        elif target_format == "docx":
+
+    elif source == "txt":
+        text = uploaded_file.read().decode("utf-8")
+        if target == "pdf":
+            c = canvas.Canvas(result, pagesize=letter)
+            y = 750
+            for line in text.splitlines():
+                c.drawString(50, y, line)
+                y -= 15
+                if y < 50:
+                    c.showPage()
+                    y = 750
+            c.save()
+        elif target == "docx":
             doc = Document()
             for line in text.splitlines():
                 doc.add_paragraph(line)
             doc.save(result)
-        elif target_format == "pdf":
-            pdf_bytes = text_to_pdf(text)
-            result.write(pdf_bytes)
 
-    # Spreadsheet conversions
-    elif source_format in sheet_types and target_format in sheet_types:
-        # Read source
-        if source_format == "csv":
-            df = pd.read_csv(uploaded_file)
-        else:
-            df = pd.read_excel(uploaded_file)
+    elif source == "txt" and target == "docx":
+        text = uploaded_file.read().decode("utf-8")
+        doc = Document()
+        for line in text.splitlines():
+            doc.add_paragraph(line)
+        doc.save(result)
 
-        # Write to target
-        if target_format == "csv":
-            df.to_csv(result, index=False)
-        else:
-            df.to_excel(result, index=False, engine="openpyxl" if target_format == "xlsx" else "xlrd")
+    elif source == "docx" and target == "txt":
+        doc = Document(uploaded_file)
+        text = "\n".join([p.text for p in doc.paragraphs])
+        result.write(text.encode("utf-8"))
 
-    else:
-        st.error("❌ This type of conversion is not supported.")
-        return None, None
+    elif source == "pdf" and target == "txt":
+        with pdfplumber.open(uploaded_file) as pdf:
+            text = "\n".join([page.extract_text() or "" for page in pdf.pages])
+            result.write(text.encode("utf-8"))
 
     result.seek(0)
-    out_ext = f".{target_format}"
-    out_name = f"converted{out_ext}"
-    return result, out_name
+    return result
 
-# When file is uploaded, perform conversion
+def convert_sheet_file(uploaded_file, source, target):
+    result = BytesIO()
+    if source == "csv":
+        df = pd.read_csv(uploaded_file)
+    else:
+        df = pd.read_excel(uploaded_file)
+
+    if target == "csv":
+        df.to_csv(result, index=False)
+    else:
+        df.to_excel(result, index=False, engine="openpyxl" if target == "xlsx" else "xlrd")
+
+    result.seek(0)
+    return result
+
 if uploaded_file:
-    output, filename = convert_file(uploaded_file, source_format, target_format)
+    st.info("Converting...")
+
+    if source_format in doc_types and target_format in doc_types:
+        output = convert_doc_file(uploaded_file, source_format, target_format)
+    elif source_format in sheet_types and target_format in sheet_types:
+        output = convert_sheet_file(uploaded_file, source_format, target_format)
+    else:
+        st.error("❌ Cross-type conversions (e.g., DOCX → CSV) are not supported.")
+        output = None
+
     if output:
-        st.success("✅ Conversion successful!")
-        download_button(output, filename, "⬇️ Download Converted File")
+        download_name = f"converted.{target_format}"
+        st.success("✅ Conversion complete!")
+        st.download_button("⬇️ Download File", data=output, file_name=download_name)
