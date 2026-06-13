@@ -6,3 +6,5 @@ pdfplumber
 reportlab
 pypandoc
 openpyxl # For Excel file handling
+pandoc
+wkhtmltopdf
